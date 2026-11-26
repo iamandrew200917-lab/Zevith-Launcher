@@ -43,9 +43,21 @@ private data class VoiceChatInstall(
     val name: String,
     val modFile: File,
     val configFile: File,
+    val enhancerConfigFile: File,
     val denoiserEnabled: Boolean,
-    val nativeAudioEnabled: Boolean
+    val nativeAudioEnabled: Boolean,
+    val enhancerEnabled: Boolean,
+    val enhancerInstalled: Boolean
 )
+
+private fun hasFabricModId(file: File, modId: String): Boolean = runCatching {
+    ZipFile(file).use { zip ->
+        val metadata = zip.getEntry("fabric.mod.json")?.let { entry ->
+            zip.getInputStream(entry).bufferedReader().use { it.readText() }
+        }.orEmpty()
+        Regex("\\\"id\\\"\\s*:\\s*\\\"$modId\\\"").containsMatchIn(metadata)
+    }
+}.getOrDefault(false)
 
 private fun isSimpleVoiceChatMod(file: File): Boolean = runCatching {
     ZipFile(file).use { zip ->
@@ -55,10 +67,14 @@ private fun isSimpleVoiceChatMod(file: File): Boolean = runCatching {
         val forgeMetadata = zip.getEntry("META-INF/mods.toml")?.let { entry ->
             zip.getInputStream(entry).bufferedReader().use { it.readText() }
         }.orEmpty()
-        Regex(""""id"\s*:\s*"voicechat"""").containsMatchIn(fabricMetadata) ||
-            Regex("""modId\s*=\s*"voicechat"""").containsMatchIn(forgeMetadata)
+        Regex("\\\"id\\\"\\s*:\\s*\\\"voicechat\\\"").containsMatchIn(fabricMetadata) ||
+            Regex("""modId\\s*=\\s*"voicechat"""").containsMatchIn(forgeMetadata)
     }
 }.getOrDefault(false)
+
+private fun readProperties(file: File): Properties = Properties().also { properties ->
+    if (file.isFile) runCatching { file.inputStream().use(properties::load) }
+}
 
 private fun findVoiceChatInstalls(gamePath: String): List<VoiceChatInstall> {
     val root = File(gamePath)
@@ -73,32 +89,41 @@ private fun findVoiceChatInstalls(gamePath: String): List<VoiceChatInstall> {
         modsDir.listFiles()?.filter {
             it.isFile && it.extension.equals("jar", true) && isSimpleVoiceChatMod(it)
         }.orEmpty().map { mod ->
-            val config = File(modsDir.parentFile, "config/voicechat/voicechat-client.properties")
-            val properties = Properties()
-            if (config.isFile) runCatching { config.inputStream().use(properties::load) }
+            val configDirectory = File(modsDir.parentFile, "config")
+            val voiceChatConfig = File(configDirectory, "voicechat/voicechat-client.properties")
+            val enhancerConfig = File(configDirectory, "zevith-voice-enhancer.properties")
+            val voiceChatProperties = readProperties(voiceChatConfig)
+            val enhancerProperties = readProperties(enhancerConfig)
+            val enhancerInstalled = modsDir.listFiles()?.any {
+                it.isFile && it.extension.equals("jar", true) &&
+                    hasFabricModId(it, "zevith_voice_enhancer")
+            } == true
             VoiceChatInstall(
                 name = instanceName,
                 modFile = mod,
-                configFile = config,
-                denoiserEnabled = properties.getProperty("denoiser", "false").equals("true", true),
-                nativeAudioEnabled = properties.getProperty("use_natives", "true").equals("true", true)
+                configFile = voiceChatConfig,
+                enhancerConfigFile = enhancerConfig,
+                denoiserEnabled = voiceChatProperties.getProperty("denoiser", "false").equals("true", true),
+                nativeAudioEnabled = voiceChatProperties.getProperty("use_natives", "true").equals("true", true),
+                enhancerEnabled = enhancerProperties.getProperty("enabled", "false").equals("true", true),
+                enhancerInstalled = enhancerInstalled
             )
         }
     }.distinctBy { it.modFile.absolutePath }
 }
 
-private fun setVoiceChatDenoiser(installs: List<VoiceChatInstall>, enabled: Boolean) {
+private fun setVoiceEnhancerEnabled(installs: List<VoiceChatInstall>, enabled: Boolean) {
     installs.forEach { install ->
-        val properties = Properties()
-        if (install.configFile.isFile) {
-            install.configFile.inputStream().use(properties::load)
-        }
-        properties.setProperty("denoiser", enabled.toString())
-        if (enabled) properties.setProperty("use_natives", "true")
+        val voiceChatProperties = readProperties(install.configFile)
+        voiceChatProperties.setProperty("denoiser", enabled.toString())
+        if (enabled) voiceChatProperties.setProperty("use_natives", "true")
         install.configFile.parentFile?.mkdirs()
-        install.configFile.outputStream().use { output ->
-            properties.store(output, "Voice Enhancer managed settings")
-        }
+        install.configFile.outputStream().use { voiceChatProperties.store(it, "Zevith Voice Enhancer settings") }
+
+        val enhancerProperties = readProperties(install.enhancerConfigFile)
+        enhancerProperties.setProperty("enabled", enabled.toString())
+        install.enhancerConfigFile.parentFile?.mkdirs()
+        install.enhancerConfigFile.outputStream().use { enhancerProperties.store(it, "Zevith Voice Enhancer settings") }
     }
 }
 
@@ -114,7 +139,10 @@ fun VoiceEnhancerScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val enabled = installs.isNotEmpty() && installs.all { it.denoiserEnabled && it.nativeAudioEnabled }
+    val enabled = installs.isNotEmpty() && installs.all {
+        it.denoiserEnabled && it.nativeAudioEnabled && it.enhancerEnabled
+    }
+    val companionReady = installs.isNotEmpty() && installs.all { it.enhancerInstalled }
 
     LaunchedEffect(gamePath) {
         isLoading = true
@@ -139,10 +167,13 @@ fun VoiceEnhancerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("Microphone noise reduction", style = MaterialTheme.typography.titleMedium)
+                            Text("Microphone + incoming voice", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                if (enabled) "RNNoise denoiser is enabled in every detected installation."
-                                else "Enable the supported denoiser for detected Simple Voice Chat installations.",
+                                when {
+                                    enabled && companionReady -> "Both processing paths are configured."
+                                    enabled -> "Microphone noise reduction is configured; install the Zevith companion mod to process incoming voices."
+                                    else -> "One switch configures microphone noise reduction and local incoming-voice processing."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -155,12 +186,12 @@ fun VoiceEnhancerScreen(
                                 error = null
                                 scope.launch {
                                     val result = runCatching {
-                                        withContext(Dispatchers.IO) { setVoiceChatDenoiser(installs, checked) }
+                                        withContext(Dispatchers.IO) { setVoiceEnhancerEnabled(installs, checked) }
                                     }
                                     result.onSuccess {
                                         installs = withContext(Dispatchers.IO) { findVoiceChatInstalls(gamePath) }
                                     }.onFailure {
-                                        error = it.message ?: "Could not update the voice chat configuration."
+                                        error = it.message ?: "Could not update the voice enhancement settings."
                                     }
                                     isSaving = false
                                 }
@@ -170,11 +201,11 @@ fun VoiceEnhancerScreen(
                 }
             }
 
-            Text("Detected voice chat mods", style = MaterialTheme.typography.titleMedium)
+            Text("Detected voice chat", style = MaterialTheme.typography.titleMedium)
             when {
                 isLoading -> Text("Scanning the selected Minecraft directory…")
                 installs.isEmpty() -> Text(
-                    "No Simple Voice Chat installation was found in the selected game directory. Install the mod and reopen this page.",
+                    "Simple Voice Chat was not found in the selected game directory.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 else -> installs.forEach { install ->
@@ -188,8 +219,20 @@ fun VoiceEnhancerScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                if (install.denoiserEnabled && install.nativeAudioEnabled) "Denoiser configured · restart the game if it is running"
-                                else "Detected · audio enhancement is not fully configured",
+                                if (install.enhancerInstalled) "Zevith audio processor: detected"
+                                else "Zevith audio processor: not installed",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                if (install.denoiserEnabled && install.nativeAudioEnabled) "Microphone denoiser: configured"
+                                else "Microphone denoiser: off",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                if (install.enhancerEnabled && install.enhancerInstalled) "Incoming voice processing: configured"
+                                else "Incoming voice processing: unavailable until the companion mod is installed and enabled",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -199,7 +242,7 @@ fun VoiceEnhancerScreen(
             }
 
             Text(
-                "The switch enables Simple Voice Chat's built-in RNNoise denoiser and native audio support in detected game instances. This configures microphone noise reduction; it does not filter incoming player audio. Restart Minecraft for changes to take effect.",
+                "The microphone path uses Simple Voice Chat's RNNoise denoiser. The Zevith companion mod processes outgoing microphone frames and incoming player frames locally with lightweight filtering and dynamic-level control. Restart Minecraft after changing this switch.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
