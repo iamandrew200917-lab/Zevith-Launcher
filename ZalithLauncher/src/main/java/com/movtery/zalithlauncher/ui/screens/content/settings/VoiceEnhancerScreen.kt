@@ -123,8 +123,10 @@ private fun readProperties(file: File): Properties {
         file.inputStream().use(properties::load)
     } catch (e: IOException) {
         Logger.warning(TAG, "Could not read settings from ${file.absolutePath}", e)
+        throw e
     } catch (e: SecurityException) {
         Logger.warning(TAG, "Permission denied while reading ${file.absolutePath}", e)
+        throw e
     }
     return properties
 }
