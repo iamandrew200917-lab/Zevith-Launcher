@@ -68,7 +68,7 @@ private fun isSimpleVoiceChatMod(file: File): Boolean = runCatching {
             zip.getInputStream(entry).bufferedReader().use { it.readText() }
         }.orEmpty()
         Regex("\\\"id\\\"\\s*:\\s*\\\"voicechat\\\"").containsMatchIn(fabricMetadata) ||
-            Regex("""modId\\s*=\\s*"voicechat"""").containsMatchIn(forgeMetadata)
+            Regex("""modId\s*=\s*"voicechat"""").containsMatchIn(forgeMetadata)
     }
 }.getOrDefault(false)
 
