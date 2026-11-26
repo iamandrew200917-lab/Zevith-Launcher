@@ -15,6 +15,29 @@ plugins {
     id("com.movtery.buildkeys")
 }
 
+abstract class BundleVoiceEnhancerModTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val companionJars: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun bundle() {
+        val jars = companionJars.files.filter {
+            it.isFile && it.extension == "jar" && !it.name.endsWith("-sources.jar")
+        }
+        if (jars.size != 1) {
+            throw GradleException("Expected one Voice Enhancer companion JAR, found ${jars.size}.")
+        }
+
+        val output = outputDirectory.get().file("zevith-voice-enhancer.jar").asFile
+        output.parentFile.mkdirs()
+        jars.single().copyTo(output, overwrite = true)
+    }
+}
+
 val zalithPackageName = "com.movtery.zalithlauncher"
 val launcherAPPName = project.findProperty("launcher_app_name") as? String ?: error("The \"launcher_app_name\" property is not set in gradle.properties.")
 val launcherName = project.findProperty("launcher_name") as? String ?: error("The \"launcher_name\" property is not set in gradle.properties.")
@@ -25,8 +48,6 @@ val launcherVersionCode = (project.findProperty("launcher_version_code") as? Str
 val launcherVersionName = project.findProperty("launcher_version_name") as? String ?: error("The \"launcher_version_name\" property is not set in gradle.properties.")
 
 val defaultOAuthClientID = project.findProperty("oauth_client_id") as? String
-val defaultStorePassword = project.findProperty("default_store_password") as? String ?: error("The \"default_store_password\" property is not set in gradle.properties.")
-val defaultKeyPassword = project.findProperty("default_key_password") as? String ?: error("The \"default_key_password\" property is not set in gradle.properties.")
 val defaultCurseForgeApiKey = project.findProperty("curseforge_api_key") as? String
 
 val projectArch: String = System.getProperty("arch", "all")
@@ -105,6 +126,13 @@ fun writeComponentAssetManifests(assetsDir: File) {
     }
 }
 
+// Signing material is not version-controlled. A variant whose keystore or password is
+// unavailable is left unsigned instead of failing the whole build.
+val releaseSigningReady = file("zalith_launcher.jks").isFile &&
+    getKeyFromLocal("STORE_PASSWORD", ".store_password.txt").isNotBlank()
+val debugSigningReady = file("zalith_launcher_debug.jks").isFile &&
+    getKeyFromLocal("DEBUG_STORE_PASSWORD", ".debug_store_password.txt").isNotBlank()
+
 android {
     namespace = zalithPackageName
     compileSdk {
@@ -122,9 +150,9 @@ android {
         }
         create("debugBuild") {
             storeFile = file("zalith_launcher_debug.jks")
-            storePassword = defaultStorePassword
+            storePassword = getKeyFromLocal("DEBUG_STORE_PASSWORD", ".debug_store_password.txt")
             keyAlias = "movtery_zalith_debug"
-            keyPassword = defaultKeyPassword
+            keyPassword = getKeyFromLocal("DEBUG_KEY_PASSWORD", ".debug_key_password.txt")
         }
     }
 
@@ -142,7 +170,12 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("releaseBuild")
+            signingConfig = if (releaseSigningReady) {
+                signingConfigs.getByName("releaseBuild")
+            } else {
+                logger.warn("BUILD: release signing material unavailable; release APKs will be unsigned.")
+                null
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -152,7 +185,12 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            signingConfig = signingConfigs.getByName("debugBuild")
+            signingConfig = if (debugSigningReady) {
+                signingConfigs.getByName("debugBuild")
+            } else {
+                logger.warn("BUILD: debug signing material unavailable; using the default Android debug keystore.")
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
@@ -280,6 +318,42 @@ androidComponents {
                     output.outputFileName = if (abi == "all") "$baseName.apk" else "$baseName-$abi.apk"
                 }
             }
+        }
+    }
+}
+
+val voiceEnhancerModDirectory = rootProject.layout.projectDirectory.dir("voice-enhancer-mod")
+val voiceEnhancerModBuild by tasks.registering(Exec::class) {
+    inputs.files(
+        rootProject.fileTree("voice-enhancer-mod/src"),
+        rootProject.file("voice-enhancer-mod/build.gradle"),
+        rootProject.file("voice-enhancer-mod/gradle.properties"),
+        rootProject.file("voice-enhancer-mod/settings.gradle"),
+        rootProject.file("gradle/wrapper/gradle-wrapper.properties")
+    )
+    outputs.dir(voiceEnhancerModDirectory.dir("build/libs"))
+    commandLine(
+        "bash",
+        rootProject.file("gradlew").absolutePath,
+        "-p",
+        voiceEnhancerModDirectory.asFile.absolutePath,
+        "remapJar"
+    )
+}
+val generatedVoiceEnhancerAssets = layout.buildDirectory.dir("generated/voiceEnhancerAssets")
+val bundleVoiceEnhancerMod by tasks.registering(BundleVoiceEnhancerModTask::class) {
+    dependsOn(voiceEnhancerModBuild)
+    companionJars.from(rootProject.fileTree("voice-enhancer-mod/build/libs") {
+        include("zevith-voice-enhancer-*.jar")
+        exclude("*-sources.jar")
+    })
+    outputDirectory.set(generatedVoiceEnhancerAssets)
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(bundleVoiceEnhancerMod) {
+            it.outputDirectory
         }
     }
 }

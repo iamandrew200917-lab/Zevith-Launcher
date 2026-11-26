@@ -5,6 +5,8 @@
 /local.properties
 .DS_Store
 /build
+**/build/
+**/.gradle/
 /captures
 .externalNativeBuild
 .cxx
@@ -12,7 +14,17 @@ local.properties
 .oauth_client_id.txt
 .store_password.txt
 .key_password.txt
+.debug_store_password.txt
+.debug_key_password.txt
 .curseforge_api.txt
+
+# Signing material must never be committed
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pepk
+
 LWJGL/build/
 LWJGL/*/build/
 
@@ -31,4 +43,3 @@ LWJGL/*/build/
 .ampersand/
 
 .vscode/
-

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "zevith_voice_enhancer",
+  "version": "${version}",
+  "name": "Zevith Voice Enhancer",
+  "description": "Local microphone and incoming voice clarity processing for Simple Voice Chat.",
+  "environment": "client",
+  "entrypoints": {
+    "voicechat": [
+      "com.movtery.zevith.voiceenhancer.ZevithVoicechatPlugin"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "minecraft": "~1.21.11",
+    "voicechat": ">=2.6.0"
+  }
+}
