@@ -37,13 +37,28 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Properties
+import java.util.zip.ZipFile
 
 private data class VoiceChatInstall(
     val name: String,
     val modFile: File,
     val configFile: File,
-    val denoiserEnabled: Boolean
+    val denoiserEnabled: Boolean,
+    val nativeAudioEnabled: Boolean
 )
+
+private fun isSimpleVoiceChatMod(file: File): Boolean = runCatching {
+    ZipFile(file).use { zip ->
+        val fabricMetadata = zip.getEntry("fabric.mod.json")?.let { entry ->
+            zip.getInputStream(entry).bufferedReader().use { it.readText() }
+        }.orEmpty()
+        val forgeMetadata = zip.getEntry("META-INF/mods.toml")?.let { entry ->
+            zip.getInputStream(entry).bufferedReader().use { it.readText() }
+        }.orEmpty()
+        Regex(""""id"\s*:\s*"voicechat"""").containsMatchIn(fabricMetadata) ||
+            Regex("""modId\s*=\s*"voicechat"""").containsMatchIn(forgeMetadata)
+    }
+}.getOrDefault(false)
 
 private fun findVoiceChatInstalls(gamePath: String): List<VoiceChatInstall> {
     val root = File(gamePath)
@@ -56,8 +71,7 @@ private fun findVoiceChatInstalls(gamePath: String): List<VoiceChatInstall> {
     }
     return modDirectories.flatMap { (instanceName, modsDir) ->
         modsDir.listFiles()?.filter {
-            it.isFile && it.extension.equals("jar", true) &&
-                (it.name.contains("voicechat", true) || it.name.contains("simple-voice-chat", true))
+            it.isFile && it.extension.equals("jar", true) && isSimpleVoiceChatMod(it)
         }.orEmpty().map { mod ->
             val config = File(modsDir.parentFile, "config/voicechat/voicechat-client.properties")
             val properties = Properties()
@@ -66,7 +80,8 @@ private fun findVoiceChatInstalls(gamePath: String): List<VoiceChatInstall> {
                 name = instanceName,
                 modFile = mod,
                 configFile = config,
-                denoiserEnabled = properties.getProperty("denoiser", "false").equals("true", true)
+                denoiserEnabled = properties.getProperty("denoiser", "false").equals("true", true),
+                nativeAudioEnabled = properties.getProperty("use_natives", "true").equals("true", true)
             )
         }
     }.distinctBy { it.modFile.absolutePath }
@@ -79,6 +94,7 @@ private fun setVoiceChatDenoiser(installs: List<VoiceChatInstall>, enabled: Bool
             install.configFile.inputStream().use(properties::load)
         }
         properties.setProperty("denoiser", enabled.toString())
+        if (enabled) properties.setProperty("use_natives", "true")
         install.configFile.parentFile?.mkdirs()
         install.configFile.outputStream().use { output ->
             properties.store(output, "Voice Enhancer managed settings")
@@ -98,7 +114,7 @@ fun VoiceEnhancerScreen(
     var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    val enabled = installs.isNotEmpty() && installs.all { it.denoiserEnabled }
+    val enabled = installs.isNotEmpty() && installs.all { it.denoiserEnabled && it.nativeAudioEnabled }
 
     LaunchedEffect(gamePath) {
         isLoading = true
@@ -172,8 +188,8 @@ fun VoiceEnhancerScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Text(
-                                if (install.denoiserEnabled) "Denoiser configured · restart the game if it is running"
-                                else "Detected · denoiser currently disabled",
+                                if (install.denoiserEnabled && install.nativeAudioEnabled) "Denoiser configured · restart the game if it is running"
+                                else "Detected · audio enhancement is not fully configured",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -183,7 +199,7 @@ fun VoiceEnhancerScreen(
             }
 
             Text(
-                "The switch updates Simple Voice Chat's denoiser setting in detected game instances. It does not inject an audio processor into the running game; restart Minecraft for configuration changes to take effect.",
+                "The switch enables Simple Voice Chat's built-in RNNoise denoiser and native audio support in detected game instances. This configures microphone noise reduction; it does not filter incoming player audio. Restart Minecraft for changes to take effect.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
