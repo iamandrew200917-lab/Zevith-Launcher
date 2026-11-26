@@ -33,7 +33,13 @@ voice-enhancer-mod/build/libs/zevith-voice-enhancer-0.1.0.jar
 
 ## Install
 
-Until the launcher bundles and installs this companion JAR automatically, copy the built JAR into the same active Minecraft instance `mods` directory as Simple Voice Chat. Then launch Minecraft once.
+The launcher bundles this JAR as `assets/zevith-voice-enhancer.jar` inside every APK and
+copies it into the active instance's `mods` directory when the Voice Enhancer switch is
+turned on. Outdated copies (including older versioned file names) are replaced, because
+two JARs declaring `zevith_voice_enhancer` would prevent Fabric from starting.
+
+To install it by hand instead, copy the built JAR into the same Minecraft instance `mods`
+directory as Simple Voice Chat, then launch Minecraft once.
 
 The Zevith launcher's Voice Enhancer switch writes:
 

@@ -51,6 +51,9 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.Properties
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
+import org.json.JSONException
+import org.json.JSONObject
 
 private const val TAG = "VoiceEnhancer"
 private const val COMPANION_MOD_ID = "zevith_voice_enhancer"
@@ -70,33 +73,64 @@ private data class VoiceChatInstall(
     val enhancerInstalled: Boolean
 )
 
-private fun hasFabricModId(file: File, modId: String): Boolean {
+private fun readFabricDescriptor(file: File): JSONObject? {
     return try {
         ZipFile(file).use { zip ->
-            val metadata = zip.getEntry("fabric.mod.json")?.let { entry ->
-                zip.getInputStream(entry).bufferedReader().use { it.readText() }
-            }.orEmpty()
-            Regex("\"id\"\\s*:\\s*\"${Regex.escape(modId)}\"").containsMatchIn(metadata)
+            zip.getEntry("fabric.mod.json")?.let { entry ->
+                zip.getInputStream(entry).bufferedReader().use { JSONObject(it.readText()) }
+            }
         }
     } catch (e: IOException) {
         Logger.warning(TAG, "Could not inspect mod metadata in ${file.absolutePath}", e)
-        false
+        null
     } catch (e: SecurityException) {
         Logger.warning(TAG, "Permission denied while inspecting ${file.absolutePath}", e)
-        false
+        null
+    } catch (e: JSONException) {
+        Logger.warning(TAG, "Malformed mod metadata in ${file.absolutePath}", e)
+        null
+    }
+}
+
+/** Returns the mod version when [file] is a Fabric mod with [modId], otherwise null. */
+private fun fabricModVersion(file: File, modId: String): String? {
+    if (!file.isFile) return null
+    val descriptor = readFabricDescriptor(file) ?: return null
+    if (descriptor.optString("id") != modId) return null
+    return descriptor.optString("version").ifBlank { "unknown" }
+}
+
+private fun companionModVersion(file: File): String? = fabricModVersion(file, COMPANION_MOD_ID)
+
+private fun readBundledCompanionVersion(context: Context): String? {
+    return try {
+        context.assets.open(COMPANION_MOD_ASSET).use { input ->
+            ZipInputStream(input).use { zipStream ->
+                var entry = zipStream.nextEntry
+                while (entry != null && entry.name != "fabric.mod.json") {
+                    zipStream.closeEntry()
+                    entry = zipStream.nextEntry
+                }
+                if (entry == null) return null
+                val descriptor = JSONObject(zipStream.readBytes().toString(Charsets.UTF_8))
+                if (descriptor.optString("id") != COMPANION_MOD_ID) return null
+                descriptor.optString("version").ifBlank { "unknown" }
+            }
+        }
+    } catch (e: IOException) {
+        Logger.error(TAG, "Could not read the bundled Voice Enhancer companion mod", e)
+        null
+    } catch (e: JSONException) {
+        Logger.error(TAG, "The bundled Voice Enhancer companion mod has malformed metadata", e)
+        null
     }
 }
 
 private fun simpleVoiceChatUsesFabric(file: File): Boolean? {
+    if (fabricModVersion(file, "voicechat") != null) return true
+
     return try {
         ZipFile(file).use { zip ->
-            val fabricMetadata = zip.getEntry("fabric.mod.json")?.let { entry ->
-                zip.getInputStream(entry).bufferedReader().use { it.readText() }
-            }.orEmpty()
-            if (Regex("\"id\"\\s*:\\s*\"voicechat\"").containsMatchIn(fabricMetadata)) {
-                return true
-            }
-
             val forgeMetadata = zip.getEntry("META-INF/mods.toml")?.let { entry ->
                 zip.getInputStream(entry).bufferedReader().use { it.readText() }
             }.orEmpty()
@@ -148,7 +182,7 @@ private fun findVoiceChatInstalls(gameDirectory: File, profileName: String): Lis
             val enhancerProperties = readProperties(enhancerConfig)
             val enhancerInstalled = modsDirectory.listFiles()?.any {
                 it.isFile && it.extension.equals("jar", ignoreCase = true) &&
-                    hasFabricModId(it, COMPANION_MOD_ID)
+                    companionModVersion(it) != null
             } == true
 
             VoiceChatInstall(
@@ -169,10 +203,23 @@ private fun findVoiceChatInstalls(gameDirectory: File, profileName: String): Lis
 }
 
 private fun installBundledCompanion(context: Context, install: VoiceChatInstall) {
-    if (install.enhancerInstalled) return
+    val bundledVersion = readBundledCompanionVersion(context)
+        ?: throw IOException(
+            "The bundled Voice Enhancer companion mod is missing from this build."
+        )
+    val target = File(install.modsDirectory, COMPANION_MOD_ASSET)
+    // Older installs may use a versioned file name; keeping both would make Fabric refuse
+    // to start because the mod id would be duplicated.
+    val staleCopies = install.modsDirectory.listFiles()
+        ?.filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
+        ?.filter { it.absolutePath != target.absolutePath && companionModVersion(it) != null }
+        .orEmpty()
+
+    if (companionModVersion(target) == bundledVersion && staleCopies.isEmpty()) {
+        return
+    }
 
     Files.createDirectories(install.modsDirectory.toPath())
-    val target = File(install.modsDirectory, COMPANION_MOD_ASSET)
     val temporary = Files.createTempFile(
         install.modsDirectory.toPath(),
         "zevith-voice-enhancer-",
@@ -182,7 +229,7 @@ private fun installBundledCompanion(context: Context, install: VoiceChatInstall)
         context.assets.open(COMPANION_MOD_ASSET).use { input ->
             Files.newOutputStream(temporary).use { output -> input.copyTo(output) }
         }
-        if (!hasFabricModId(temporary.toFile(), COMPANION_MOD_ID)) {
+        if (companionModVersion(temporary.toFile()) != bundledVersion) {
             throw IOException("The bundled Voice Enhancer companion mod is invalid.")
         }
 
@@ -195,6 +242,12 @@ private fun installBundledCompanion(context: Context, install: VoiceChatInstall)
             )
         } catch (_: AtomicMoveNotSupportedException) {
             Files.move(temporary, target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+
+        staleCopies.forEach { stale ->
+            if (!stale.delete()) {
+                Logger.warning(TAG, "Could not remove the outdated companion mod ${stale.absolutePath}")
+            }
         }
     } finally {
         try {

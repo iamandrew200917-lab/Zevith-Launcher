@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentMap;
 
 public final class ZevithVoicechatPlugin implements VoicechatPlugin {
     private static final String CONFIG_NAME = "zevith-voice-enhancer.properties";
-    private static final int FRAME_SIZE = 960;
+    private static final int MAX_TRACKED_CHANNELS = 256;
     private static final java.util.logging.Logger LOGGER =
             java.util.logging.Logger.getLogger("Zevith Voice Enhancer");
 
@@ -35,6 +35,9 @@ public final class ZevithVoicechatPlugin implements VoicechatPlugin {
     @Override
     public void initialize(VoicechatApi api) {
         enabled = readEnabledSetting();
+        LOGGER.info(enabled
+                ? "Voice Enhancer is enabled; microphone and incoming audio processing are registered."
+                : "Voice Enhancer is disabled; no audio processing is registered.");
     }
 
     @Override
@@ -59,13 +62,17 @@ public final class ZevithVoicechatPlugin implements VoicechatPlugin {
 
     private void processIncoming(ClientReceiveSoundEvent event) {
         short[] samples = event.getRawAudio();
-        if (samples == null || samples.length != FRAME_SIZE) {
+        if (samples == null || samples.length == 0) {
             return;
         }
 
         UUID channelId = event.getId();
         if (channelId == null) {
             return;
+        }
+        if (incomingEnhancers.size() >= MAX_TRACKED_CHANNELS && !incomingEnhancers.containsKey(channelId)) {
+            // Audio channels are short lived; dropping everything is safer than growing without bound.
+            incomingEnhancers.clear();
         }
         PcmAudioProcessor enhancer = incomingEnhancers.computeIfAbsent(channelId, ignored -> new PcmAudioProcessor());
         event.setRawAudio(enhancer.process(samples));
