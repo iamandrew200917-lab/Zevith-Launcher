@@ -48,8 +48,6 @@ val launcherVersionCode = (project.findProperty("launcher_version_code") as? Str
 val launcherVersionName = project.findProperty("launcher_version_name") as? String ?: error("The \"launcher_version_name\" property is not set in gradle.properties.")
 
 val defaultOAuthClientID = project.findProperty("oauth_client_id") as? String
-val defaultStorePassword = project.findProperty("default_store_password") as? String ?: error("The \"default_store_password\" property is not set in gradle.properties.")
-val defaultKeyPassword = project.findProperty("default_key_password") as? String ?: error("The \"default_key_password\" property is not set in gradle.properties.")
 val defaultCurseForgeApiKey = project.findProperty("curseforge_api_key") as? String
 
 val projectArch: String = System.getProperty("arch", "all")
@@ -128,6 +126,13 @@ fun writeComponentAssetManifests(assetsDir: File) {
     }
 }
 
+// Signing material is not version-controlled. A variant whose keystore or password is
+// unavailable is left unsigned instead of failing the whole build.
+val releaseSigningReady = file("zalith_launcher.jks").isFile &&
+    getKeyFromLocal("STORE_PASSWORD", ".store_password.txt").isNotBlank()
+val debugSigningReady = file("zalith_launcher_debug.jks").isFile &&
+    getKeyFromLocal("DEBUG_STORE_PASSWORD", ".debug_store_password.txt").isNotBlank()
+
 android {
     namespace = zalithPackageName
     compileSdk {
@@ -145,9 +150,9 @@ android {
         }
         create("debugBuild") {
             storeFile = file("zalith_launcher_debug.jks")
-            storePassword = defaultStorePassword
+            storePassword = getKeyFromLocal("DEBUG_STORE_PASSWORD", ".debug_store_password.txt")
             keyAlias = "movtery_zalith_debug"
-            keyPassword = defaultKeyPassword
+            keyPassword = getKeyFromLocal("DEBUG_KEY_PASSWORD", ".debug_key_password.txt")
         }
     }
 
@@ -165,7 +170,12 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("releaseBuild")
+            signingConfig = if (releaseSigningReady) {
+                signingConfigs.getByName("releaseBuild")
+            } else {
+                logger.warn("BUILD: release signing material unavailable; release APKs will be unsigned.")
+                null
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -175,7 +185,12 @@ android {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            signingConfig = signingConfigs.getByName("debugBuild")
+            signingConfig = if (debugSigningReady) {
+                signingConfigs.getByName("debugBuild")
+            } else {
+                logger.warn("BUILD: debug signing material unavailable; using the default Android debug keystore.")
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
