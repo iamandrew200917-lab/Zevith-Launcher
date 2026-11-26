@@ -3074,4 +3074,44 @@
     <string name="guide_joystick_events_events_text2">If you only want to control the game, just edit the actual key bindings in the \"Key\" section</string>
     <!-- Navigation title for the voice processing integration page -->
     <string name="voice_enhancer_title">Voice Enhancer</string>
+    <!-- Label for the microphone and incoming-player audio processing switch -->
+    <string name="voice_enhancer_audio_paths">Microphone and incoming voice</string>
+    <!-- Status shown after both Voice Enhancer processing paths are configured -->
+    <string name="voice_enhancer_configured">Microphone and incoming voice processing are configured.</string>
+    <!-- Status explaining that enabling the setting installs and configures the companion mod -->
+    <string name="voice_enhancer_enable_hint">Enable this setting to configure microphone denoising and install incoming voice processing.</string>
+    <!-- Status shown when settings exist but the companion mod is missing -->
+    <string name="voice_enhancer_companion_missing">Microphone settings are enabled, but the companion mod is missing. Toggle this setting off and on to install it.</string>
+    <!-- Status explaining that a supported Minecraft profile must be selected -->
+    <string name="voice_enhancer_select_supported_profile">Select a Fabric profile for Minecraft %1$s with Simple Voice Chat installed.</string>
+    <!-- Status explaining that the companion mod targets a specific Minecraft version -->
+    <string name="voice_enhancer_unsupported_version">The companion mod currently supports Minecraft %1$s only.</string>
+    <!-- Status explaining that the companion mod currently supports Fabric only -->
+    <string name="voice_enhancer_fabric_only">The Zevith companion currently supports Fabric only.</string>
+    <!-- Label for the detected Simple Voice Chat section -->
+    <string name="voice_enhancer_detected_heading">Detected voice chat</string>
+    <!-- Loading message while scanning the selected Minecraft profile -->
+    <string name="voice_enhancer_scanning">Scanning the selected Minecraft profile…</string>
+    <!-- Message shown when Simple Voice Chat is not present in the selected profile -->
+    <string name="voice_enhancer_not_detected">Simple Voice Chat was not found in the selected profile.</string>
+    <!-- Default profile name when no Minecraft version is selected -->
+    <string name="voice_enhancer_default_profile">Default game directory</string>
+    <!-- Label identifying a detected Simple Voice Chat installation -->
+    <string name="voice_enhancer_simple_voice_chat">Simple Voice Chat</string>
+    <!-- Status showing that the Zevith companion mod is installed -->
+    <string name="voice_enhancer_companion_detected">Zevith audio processor: detected</string>
+    <!-- Status showing that the Zevith companion mod is not installed yet -->
+    <string name="voice_enhancer_companion_not_installed">Zevith audio processor: not installed; it will be added when enabled.</string>
+    <!-- Status showing that Simple Voice Chat microphone denoising is configured -->
+    <string name="voice_enhancer_microphone_configured">Microphone denoiser: configured</string>
+    <!-- Status showing that Simple Voice Chat microphone denoising is disabled -->
+    <string name="voice_enhancer_microphone_off">Microphone denoiser: off</string>
+    <!-- Status showing that incoming player audio processing is configured -->
+    <string name="voice_enhancer_incoming_configured">Incoming voice processing: configured</string>
+    <!-- Status explaining why incoming player audio processing is unavailable -->
+    <string name="voice_enhancer_incoming_unavailable">Incoming voice processing: unavailable until the companion mod is installed and enabled.</string>
+    <!-- Description of the local audio processing and restart requirement -->
+    <string name="voice_enhancer_description">Simple Voice Chat supplies RNNoise microphone denoising. The bundled Zevith companion processes outgoing and incoming player audio locally. Restart Minecraft after changing this setting.</string>
+    <!-- Error shown when no specific problem detail is available while saving settings -->
+    <string name="voice_enhancer_update_failed">Could not update Voice Enhancer settings.</string>
 </resources>

@@ -1,5 +1,5 @@
 plugins {
-    id 'net.fabricmc.fabric-loom' version '1.14.10'
+    id 'net.fabricmc.fabric-loom-remap' version '1.14.10'
 }
 
 group = 'com.movtery.zevith'
@@ -9,12 +9,18 @@ base {
     archivesName = 'zevith-voice-enhancer'
 }
 
+repositories {
+    maven { url = 'https://maven.maxhenkel.de/repository/public' }
+}
+
 dependencies {
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
     modImplementation "net.fabricmc:fabric-loader:${project.fabric_loader_version}"
 
     modCompileOnly "de.maxhenkel.voicechat:voicechat-api:${project.voicechat_api_version}"
+
+    testImplementation 'junit:junit:4.13.2'
 }
 
 java {

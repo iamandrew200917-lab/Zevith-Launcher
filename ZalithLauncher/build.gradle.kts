@@ -15,6 +15,29 @@ plugins {
     id("com.movtery.buildkeys")
 }
 
+abstract class BundleVoiceEnhancerModTask : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val companionJars: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun bundle() {
+        val jars = companionJars.files.filter {
+            it.isFile && it.extension == "jar" && !it.name.endsWith("-sources.jar")
+        }
+        if (jars.size != 1) {
+            throw GradleException("Expected one Voice Enhancer companion JAR, found ${jars.size}.")
+        }
+
+        val output = outputDirectory.get().file("zevith-voice-enhancer.jar").asFile
+        output.parentFile.mkdirs()
+        jars.single().copyTo(output, overwrite = true)
+    }
+}
+
 val zalithPackageName = "com.movtery.zalithlauncher"
 val launcherAPPName = project.findProperty("launcher_app_name") as? String ?: error("The \"launcher_app_name\" property is not set in gradle.properties.")
 val launcherName = project.findProperty("launcher_name") as? String ?: error("The \"launcher_name\" property is not set in gradle.properties.")
@@ -280,6 +303,42 @@ androidComponents {
                     output.outputFileName = if (abi == "all") "$baseName.apk" else "$baseName-$abi.apk"
                 }
             }
+        }
+    }
+}
+
+val voiceEnhancerModDirectory = rootProject.layout.projectDirectory.dir("voice-enhancer-mod")
+val voiceEnhancerModBuild by tasks.registering(Exec::class) {
+    inputs.files(
+        rootProject.fileTree("voice-enhancer-mod/src"),
+        rootProject.file("voice-enhancer-mod/build.gradle"),
+        rootProject.file("voice-enhancer-mod/gradle.properties"),
+        rootProject.file("voice-enhancer-mod/settings.gradle"),
+        rootProject.file("gradle/wrapper/gradle-wrapper.properties")
+    )
+    outputs.dir(voiceEnhancerModDirectory.dir("build/libs"))
+    commandLine(
+        "bash",
+        rootProject.file("gradlew").absolutePath,
+        "-p",
+        voiceEnhancerModDirectory.asFile.absolutePath,
+        "remapJar"
+    )
+}
+val generatedVoiceEnhancerAssets = layout.buildDirectory.dir("generated/voiceEnhancerAssets")
+val bundleVoiceEnhancerMod by tasks.registering(BundleVoiceEnhancerModTask::class) {
+    dependsOn(voiceEnhancerModBuild)
+    companionJars.from(rootProject.fileTree("voice-enhancer-mod/build/libs") {
+        include("zevith-voice-enhancer-*.jar")
+        exclude("*-sources.jar")
+    })
+    outputDirectory.set(generatedVoiceEnhancerAssets)
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(bundleVoiceEnhancerMod) {
+            it.outputDirectory
         }
     }
 }
